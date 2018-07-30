@@ -1,0 +1,28 @@
+name:                quadcopter-simulation
+version:             0.1
+synopsis:            simulating a quadcopter from an accelerometer
+license:             BSD3
+license-file:        LICENSE
+author:              Niklas Hambüchen
+maintainer:          mail@nh2.me
+build-type:          Simple
+cabal-version:       >=1.8
+
+source-repository head
+  type:     git
+  location: git://github.com/nh2/quadcopter-simulation.git
+
+executable           quadcopter-simulation
+  main-is:           app/Main.hs
+  build-depends:     base >= 4.5 && < 5,
+                     not-gloss >= 0.7.6.2,
+                     spatial-math >= 0.2.0,
+                     linear >= 1.3.1,
+                     async,
+                     clock,
+                     GLUT,
+                     containers,
+                     serialport,
+                     text,
+                     X11
+  ghc-options:       -Wall -threaded
