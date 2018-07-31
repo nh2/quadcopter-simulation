@@ -61,6 +61,9 @@ setCamera (Running (V3 x y z) _ euler) =
 initialCopterPos :: V3 Double
 initialCopterPos = V3 0 0 (-1) -- start above the ground
 
+flipX :: (Num a) => V3 a -> V3 a
+flipX (V3 x y z) = V3 (-x) y z
+
 simfun :: Float -> GameState -> IO GameState
 simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos deviceAccel accel speed) = do
   Size x y <- GLUT.get GLUT.windowSize
@@ -69,28 +72,19 @@ simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos de
 
   when (Just (x',y') /= lmp) (GLUT.pointerPosition $= (Position x' y'))
 
-  let flipX (V3 x y z) = V3 (-x) y z
+  let boundAbs cap val
+        | val < -cap = -cap
+        | val >  cap =  cap
+        | otherwise = val
 
-  let newAccel = (-thrust) *^ accel + V3 0 0 (0.0002)
-  let newSpeed
-        | reset = V3 0 0 0
-        | otherwise = speed + flipX newAccel
-  let newCopterPos
-        | reset = initialCopterPos
-        | otherwise = copterPos + newSpeed
+  let newAccel = (if thrust then -0.5 else 0) *^ accel + V3 0 0 (0.0002)
+  let newSpeed = boundAbs 0.05 $ speed + flipX newAccel
+  let newCopterPos = copterPos + newSpeed
 
-  let speedCap = 0.05
-  let capComponent c
-        | c < -speedCap = -speedCap
-        | c >  speedCap =  speedCap
-        | otherwise = c
+  let onReset resetVal val = if reset then resetVal else val
 
-  let finalSpeed
-        | reset = V3 0 0 0
-        | otherwise = capComponent <$> newSpeed
-  let finalCopterPos
-        | reset = initialCopterPos
-        | otherwise = newCopterPos
+  let finalSpeed = onReset (V3 0 0 0) newSpeed
+  let finalCopterPos = onReset initialCopterPos newCopterPos
 
   return $ GameState (Running (pos + (ts *^ v)) v euler0) keys (Just (x',y')) finalCopterPos deviceAccel accel finalSpeed
   where
@@ -101,10 +95,8 @@ simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos de
         s = if Set.member (Char 's') keys then 3 else 0
         d = if Set.member (Char 'd') keys then 3 else 0
 
+    thrust = Set.member (Char ' ') keys
     reset = Set.member (Char 'r') keys
-
-    -- thrust = if Set.member (Char ' ') keys then 0.005 else 0
-    thrust = if Set.member (Char ' ') keys then 0.5 else 0
 
 keyMouseCallback :: GameState -> Key -> KeyState -> Modifiers -> Position -> GameState
 keyMouseCallback state0 key keystate _ _
