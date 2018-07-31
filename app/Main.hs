@@ -64,27 +64,50 @@ initialCopterPos = V3 0 0 (-1) -- start above the ground
 flipX :: (Num a) => V3 a -> V3 a
 flipX (V3 x y z) = V3 (-x) y z
 
+boundAbs :: (Ord a, Num a) => a -> a -> a
+boundAbs cap val
+  | val < -cap = -cap
+  | val >  cap =  cap
+  | otherwise  =  val
+
+boundLower :: (Ord a, Num a) => a -> a -> a
+boundLower cap val
+  | val < -cap = -cap
+  | otherwise  =  val
+
+boundUpper :: (Ord a, Num a) => a -> a -> a
+boundUpper cap val
+  | val > cap = cap
+  | otherwise = val
+
 simfun :: Float -> GameState -> IO GameState
 simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos deviceAccel accel speed) = do
-  Size x y <- GLUT.get GLUT.windowSize
-  let x' = (fromIntegral x) `div` 2
-      y' = (fromIntegral y) `div` 2
+  (x', y') <- do
+    Size x y <- GLUT.get GLUT.windowSize
+    let x' = (fromIntegral x) `div` 2
+        y' = (fromIntegral y) `div` 2
+    return (x', y')
 
   when (Just (x',y') /= lmp) (GLUT.pointerPosition $= (Position x' y'))
 
-  let boundAbs cap val
-        | val < -cap = -cap
-        | val >  cap =  cap
-        | otherwise = val
-
   let newAccel = (if thrust then -0.5 else 0) *^ accel + V3 0 0 (0.0002)
-  let newSpeed = boundAbs 0.05 $ speed + flipX newAccel
-  let newCopterPos = copterPos + newSpeed
+  let newSpeed =
+        boundAbs 0.05 $
+          speed + flipX newAccel
+  let newCopterPos =
+        copterPos + newSpeed
+
+  let touchesGround = let V3 _ _ z = newCopterPos in z > 0
+
+  let collidedSpeed = if touchesGround then 0 else newSpeed
+  let collidedCopterPos
+        | touchesGround = let V3 x y _ = newCopterPos in V3 x y 0
+        | otherwise     = newCopterPos
 
   let onReset resetVal val = if reset then resetVal else val
 
-  let finalSpeed = onReset (V3 0 0 0) newSpeed
-  let finalCopterPos = onReset initialCopterPos newCopterPos
+  let finalSpeed = onReset (V3 0 0 0) collidedSpeed
+  let finalCopterPos = onReset initialCopterPos collidedCopterPos
 
   return $ GameState (Running (pos + (ts *^ v)) v euler0) keys (Just (x',y')) finalCopterPos deviceAccel accel finalSpeed
   where
