@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiWayIf #-}
 
 module Main where
 
@@ -31,6 +32,8 @@ import System.Hardware.Serialport
 
 import Control.Monad ( when, forever )
 
+import Debug.Trace
+
 ts :: Double
 ts = 0.01
 
@@ -42,6 +45,7 @@ data PlayerState = Running (V3 Double) (V3 Double) (Euler Double)
 data GameState = GameState { playerState :: PlayerState
                            , keySet :: Set.Set Key
                            , lastMousePos :: Maybe (GLint,GLint)
+                           , windowSize :: Size
                            , copterPos :: V3 Double
                            , deviceAccel :: V3 Int
                            , accel :: V3 Double
@@ -80,24 +84,29 @@ boundUpper cap val
   | val > cap = cap
   | otherwise = val
 
-simfun :: Float -> GameState -> IO GameState
-simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos deviceAccel accel speed) = do
+simfun :: Double -> Double -> GameState -> IO GameState
+simfun _t dt gs@(GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp windowSize copterPos deviceAccel accel speed) = do
   (x', y') <- do
-    Size x y <- GLUT.get GLUT.windowSize
+    -- Size x y <- GLUT.get GLUT.windowSize
+    let Size x y = windowSize
     let x' = (fromIntegral x) `div` 2
         y' = (fromIntegral y) `div` 2
     return (x', y')
 
   when (Just (x',y') /= lmp) (GLUT.pointerPosition $= (Position x' y'))
 
-  let newAccel = (if thrust then -0.5 else 0) *^ accel + V3 0 0 (0.0002)
+  let newAccel = (if thrust then -2 else 0) *^ accel + V3 0 0 1
   let newSpeed =
-        boundAbs 0.05 $
-          speed + flipX newAccel
+        boundAbs 0.5 <$>
+          speed + dt *^ flipX newAccel
   let newCopterPos =
-        copterPos + newSpeed
+        copterPos + dt *^ newSpeed
 
   let touchesGround = let V3 _ _ z = newCopterPos in z > 0
+
+  print touchesGround
+
+  -- print $ keySet gs
 
   let collidedSpeed = if touchesGround then 0 else newSpeed
   let collidedCopterPos
@@ -109,7 +118,7 @@ simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos de
   let finalSpeed = onReset (V3 0 0 0) collidedSpeed
   let finalCopterPos = onReset initialCopterPos collidedCopterPos
 
-  return $ GameState (Running (pos + (ts *^ v)) v euler0) keys (Just (x',y')) finalCopterPos deviceAccel accel finalSpeed
+  return $ GameState (Running (pos + (ts *^ v)) v euler0) keys (Just (x',y')) windowSize finalCopterPos deviceAccel accel finalSpeed
   where
     v = rotateXyzAboutZ (V3 (w-s) (d-a) 0) yaw
       where
@@ -122,13 +131,13 @@ simfun _ (GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp copterPos de
     reset = Set.member (Char 'r') keys
 
 keyMouseCallback :: GameState -> Key -> KeyState -> Modifiers -> Position -> GameState
-keyMouseCallback state0 key keystate _ _
-  | keystate == Down = state0 {keySet = Set.insert key (keySet state0)}
-  | keystate == Up   = state0 {keySet = Set.delete key (keySet state0)}
-  | otherwise        = state0
+keyMouseCallback state0 key keystate mods pos = traceShow (key, keystate, mods, pos) $ if
+  | keystate == Down -> state0 {keySet = Set.insert key (keySet state0)}
+  | keystate == Up   -> state0 {keySet = Set.delete key (keySet state0)}
+  | otherwise        -> state0
 
 motionCallback :: Bool -> GameState -> Position -> GameState
-motionCallback _ state0@(GameState (Running pos v (Euler yaw0 pitch0 _)) _ lmp _ _ _ _) (Position x y) =
+motionCallback _ state0@(GameState (Running pos v (Euler yaw0 pitch0 _)) _ lmp _ _ _ _ _) (Position x y) =
   state0 {playerState = newPlayerState, lastMousePos = Just (x,y)}
   where
     (x0,y0) = case lmp of Nothing -> (x,y)
@@ -160,10 +169,10 @@ drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z } =
     box =
       Trans copterPos $
         RotEulerDeg (Euler{ eYaw = 0
-                          , ePitch = (-x) * 0.9 / 0.00001
-                          , eRoll = (-y) * 0.9 / 0.00001
+                          , ePitch = (-x) * 0.9 / 0.01
+                          , eRoll = (-y) * 0.9 / 0.01
                           }) $
-          Box (0.2, 0.2, 0.2) Solid (makeColor 0 1 1 1)
+          Box (0.2, 0.2, 0.05) Solid (makeColor 0 1 1 1)
     plane = Plane (V3 0 0 1) (makeColor 1 1 1 1) (makeColor 0.4 0.6 0.65 0.4)
 
 
@@ -177,7 +186,9 @@ main = do
     , commSpeed = CS115200
     }
 
+  lastTimeRef <- newIORef 0
   deviceAccelRef <- newIORef $ V3 0 0 0
+  windowSizeRef <- newIORef $ Size 0 0
 
   let serialReaderThread = forever $ do
         -- -- recv s 1 >>= (\([c]) -> print (ord c)) . BS8.unpack
@@ -226,6 +237,7 @@ main = do
             { playerState = Running (V3 (-2) 0 0) 0 (Euler 0 0 0)
             , keySet = Set.empty
             , lastMousePos = Nothing
+            , windowSize = Size 0 0
             , copterPos = initialCopterPos
             , deviceAccel = V3 0 0 0
             , accel = V3 0 0 0
@@ -234,17 +246,32 @@ main = do
 
         setCam GameState{ playerState } = setCamera playerState
 
-        simfun' time gameState@GameState{ accel } = do
+        simfun' timeF gameState@GameState{ accel } = do
+          let time = realToFrac timeF :: Double
+
+          windowSize <- readIORef windowSizeRef
           deviceAccel <- readIORef deviceAccelRef
 
           let interpolate w a b = (1-w) *^ a + w *^ b
           let w = 0.2
-          let newAccel = interpolate w accel (0.00001 *^ (fromIntegral <$> deviceAccel))
+          let newAccel = interpolate w accel (0.01 *^ (fromIntegral <$> deviceAccel))
 
-          simfun time gameState{ deviceAccel, accel = newAccel }
+          timeDiff <- atomicModifyIORef' lastTimeRef $ \lastTime ->
+            (time, time - lastTime)
+
+          -- simfun time timeDiff gameState{ deviceAccel, accel = newAccel }
+          simfun time timeDiff gameState{ windowSize, deviceAccel, accel = newAccel }
 
         drawfun' :: GameState -> IO (VisObject Double, Maybe Cursor)
-        drawfun' x = return (drawfun x, Just None)
+        drawfun' gs = do
+          windowSize <- GLUT.get GLUT.windowSize
+          writeIORef windowSizeRef windowSize
+          -- Don't hide the cursor, otherwise we cannot restart
+          -- GLUT. This is a bug in freeglut, see:
+          --   https://stackoverflow.com/questions/28739506/restarting-a-freeglut-opengl-c-application-fails-on-ubuntu-when-using-special
+          --let cursor = Just None
+          let cursor = Nothing
+          return (drawfun gs, cursor)
 
     _ <- initThreads
     playIO (defaultOpts {optWindowName = "play test"}) ts state0 drawfun' simfun' setCam
