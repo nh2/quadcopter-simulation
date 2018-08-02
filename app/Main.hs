@@ -50,6 +50,7 @@ data GameState = GameState { playerState :: PlayerState
                            , deviceAccel :: V3 Int
                            , accel :: V3 Double
                            , speed :: V3 Double
+                           , rotorRotation :: Double -- in radians
                            }
 
 toVertex :: (Real a, Fractional b) => V3 a -> Vertex3 b
@@ -85,7 +86,18 @@ boundUpper cap val
   | otherwise = val
 
 simfun :: Double -> Double -> GameState -> IO GameState
-simfun _t dt gs@(GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp windowSize copterPos deviceAccel accel speed) = do
+simfun t
+  dt
+  gs@GameState
+    { playerState = Running pos _ euler0@(Euler yaw _ _)
+    , keySet = keys
+    , lastMousePos = lmp
+    , windowSize
+    , copterPos
+    , accel
+    , speed
+    } = do
+
   (x', y') <- do
     -- Size x y <- GLUT.get GLUT.windowSize
     let Size x y = windowSize
@@ -104,7 +116,8 @@ simfun _t dt gs@(GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp windo
 
   let touchesGround = let V3 _ _ z = newCopterPos in z > 0
 
-  print touchesGround
+  -- print touchesGround
+  -- print (deviceAccel gs)
 
   -- print $ keySet gs
 
@@ -118,7 +131,14 @@ simfun _t dt gs@(GameState (Running pos _ euler0@(Euler yaw _ _)) keys lmp windo
   let finalSpeed = onReset (V3 0 0 0) collidedSpeed
   let finalCopterPos = onReset initialCopterPos collidedCopterPos
 
-  return $ GameState (Running (pos + (ts *^ v)) v euler0) keys (Just (x',y')) windowSize finalCopterPos deviceAccel accel finalSpeed
+  return $
+    gs
+      { playerState = Running (pos + (ts *^ v)) v euler0
+      , lastMousePos = Just (x',y')
+      , copterPos = finalCopterPos
+      , speed = finalSpeed
+      , rotorRotation = t * 10
+      }
   where
     v = rotateXyzAboutZ (V3 (w-s) (d-a) 0) yaw
       where
@@ -137,7 +157,7 @@ keyMouseCallback state0 key keystate mods pos = traceShow (key, keystate, mods, 
   | otherwise        -> state0
 
 motionCallback :: Bool -> GameState -> Position -> GameState
-motionCallback _ state0@(GameState (Running pos v (Euler yaw0 pitch0 _)) _ lmp _ _ _ _ _) (Position x y) =
+motionCallback _ state0@GameState{ playerState = Running pos v (Euler yaw0 pitch0 _), lastMousePos = lmp } (Position x y) =
   state0 {playerState = newPlayerState, lastMousePos = Just (x,y)}
   where
     (x0,y0) = case lmp of Nothing -> (x,y)
@@ -153,26 +173,35 @@ motionCallback _ state0@(GameState (Running pos v (Euler yaw0 pitch0 _)) _ lmp _
       | otherwise  = val
 
 
-data Accel =
-  Accel
-    { accelX :: Int
-    , accelY :: Int
-    , accelZ :: Int
-    } deriving (Eq, Ord, Show)
-
+data SpinDirection = Clockwise | AntiClockwise
 
 drawfun :: GameState -> VisObject Double
-drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z } =
+drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z, rotorRotation } =
   VisObjects $ [axes, box, plane]
   where
     axes = Axes (0.5, 15)
+    makeRotor :: (Double, Double) -> Float -> SpinDirection -> VisObject Double
+    makeRotor (xOff, yOff) redPart spinDirection =
+      Trans (V3 xOff yOff (-0.05)) $
+        RotEulerRad Euler{ eYaw = rotation, ePitch = 0, eRoll = 0 } $
+          Box (0.2, 0.05, 0.02) Solid (makeColor 0 redPart 1 1)
+      where
+        rotation = case spinDirection of
+          Clockwise -> rotorRotation
+          AntiClockwise -> -rotorRotation
     box =
       Trans copterPos $
         RotEulerDeg (Euler{ eYaw = 0
                           , ePitch = (-x) * 0.9 / 0.01
-                          , eRoll = (-y) * 0.9 / 0.01
+                          , eRoll  = (-y) * 0.9 / 0.01
                           }) $
-          Box (0.2, 0.2, 0.05) Solid (makeColor 0 1 1 1)
+          VisObjects
+            [ Box (0.2, 0.2, 0.05) Solid (makeColor 0 1 1 1)
+            , makeRotor ( 0.1,  0.1) 0.4 Clockwise
+            , makeRotor (-0.1,  0.1) 0.6 AntiClockwise
+            , makeRotor ( 0.1, -0.1) 0.8 Clockwise
+            , makeRotor (-0.1, -0.1) 1.0 AntiClockwise
+            ]
     plane = Plane (V3 0 0 1) (makeColor 1 1 1 1) (makeColor 0.4 0.6 0.65 0.4)
 
 
@@ -242,6 +271,7 @@ main = do
             , deviceAccel = V3 0 0 0
             , accel = V3 0 0 0
             , speed = V3 0 0 0
+            , rotorRotation = 0
             }
 
         setCam GameState{ playerState } = setCamera playerState
@@ -259,7 +289,6 @@ main = do
           timeDiff <- atomicModifyIORef' lastTimeRef $ \lastTime ->
             (time, time - lastTime)
 
-          -- simfun time timeDiff gameState{ deviceAccel, accel = newAccel }
           simfun time timeDiff gameState{ windowSize, deviceAccel, accel = newAccel }
 
         drawfun' :: GameState -> IO (VisObject Double, Maybe Cursor)
