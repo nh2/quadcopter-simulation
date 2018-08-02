@@ -51,6 +51,7 @@ data GameState = GameState { playerState :: PlayerState
                            , accel :: V3 Double
                            , speed :: V3 Double
                            , rotorRotation :: Double -- in radians
+                           , thrusting :: Bool
                            }
 
 toVertex :: (Real a, Fractional b) => V3 a -> Vertex3 b
@@ -116,11 +117,6 @@ simfun t
 
   let touchesGround = let V3 _ _ z = newCopterPos in z > 0
 
-  -- print touchesGround
-  -- print (deviceAccel gs)
-
-  -- print $ keySet gs
-
   let collidedSpeed = if touchesGround then 0 else newSpeed
   let collidedCopterPos
         | touchesGround = let V3 x y _ = newCopterPos in V3 x y 0
@@ -138,6 +134,7 @@ simfun t
       , copterPos = finalCopterPos
       , speed = finalSpeed
       , rotorRotation = t * 10
+      , thrusting = thrust
       }
   where
     v = rotateXyzAboutZ (V3 (w-s) (d-a) 0) yaw
@@ -176,7 +173,7 @@ motionCallback _ state0@GameState{ playerState = Running pos v (Euler yaw0 pitch
 data SpinDirection = Clockwise | AntiClockwise
 
 drawfun :: GameState -> VisObject Double
-drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z, rotorRotation } =
+drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z, rotorRotation, thrusting } =
   VisObjects $ [axes, box, plane]
   where
     axes = Axes (0.5, 15)
@@ -189,19 +186,25 @@ drawfun GameState{ playerState = Running _ _ _, copterPos, accel = V3 x y _z, ro
         rotation = case spinDirection of
           Clockwise -> rotorRotation
           AntiClockwise -> -rotorRotation
+    thrustExhaust =
+      [ Trans (V3 0 0 0.05) $
+          Box (0.05, 0.05, 0.05) Solid (makeColor 1 0.6 0.05 1)
+      | thrusting
+      ]
     box =
       Trans copterPos $
         RotEulerDeg (Euler{ eYaw = 0
                           , ePitch = (-x) * 0.9 / 0.01
                           , eRoll  = (-y) * 0.9 / 0.01
                           }) $
-          VisObjects
+          VisObjects $
             [ Box (0.2, 0.2, 0.05) Solid (makeColor 0 1 1 1)
             , makeRotor ( 0.1,  0.1) 0.4 Clockwise
             , makeRotor (-0.1,  0.1) 0.6 AntiClockwise
             , makeRotor ( 0.1, -0.1) 0.8 Clockwise
             , makeRotor (-0.1, -0.1) 1.0 AntiClockwise
             ]
+            ++ thrustExhaust
     plane = Plane (V3 0 0 1) (makeColor 1 1 1 1) (makeColor 0.4 0.6 0.65 0.4)
 
 
@@ -239,6 +242,8 @@ main = do
         --     print (x, y, z)
         --   _ -> return ()
 
+        -- print =<< toNanoSecs <$> getTime Monotonic
+
         -- print "here"
         l <- hGetLine h
         -- print l
@@ -272,6 +277,7 @@ main = do
             , accel = V3 0 0 0
             , speed = V3 0 0 0
             , rotorRotation = 0
+            , thrusting = False
             }
 
         setCam GameState{ playerState } = setCamera playerState
