@@ -12,6 +12,17 @@ use core::ptr::read_volatile;
 
 static mut STATIC_TEST: u8 = b'A';
 
+pub fn serial_print(s: &str) {
+    for b in s.bytes() {
+        serial::transmit(b);
+    }
+}
+
+pub fn serial_println(s: &str) {
+    serial_print(s);
+    serial::transmit(b'\n');
+}
+
 pub fn serial_send_u16_decimal(x: u16) {
     // Allocate a buffer of fitting size, fill it (least significant
     // digits first as we have to modulo-divide), and send it
@@ -55,9 +66,7 @@ pub extern fn main() {
         .stop_bits(serial::StopBits::OneBit)
         .configure();
 
-    for &b in b"start\n" {
-        serial::transmit(b);
-    }
+    serial_println("start");
 
     without_interrupts(|| {
 
@@ -90,15 +99,13 @@ pub extern fn main() {
             serial::transmit(STATIC_TEST);
             serial::transmit(b' ');
 
-            for &b in b"Counter value: " { serial::transmit(b); }
+            serial_print("Counter value: ");
 
             let counter_value = read_volatile(TCNT1);
             serial_send_u16_decimal(counter_value);
 
         }
-        for &b in b" OK\n" {
-            serial::transmit(b);
-        }
+        serial_println(" OK");
 
     }
 }
@@ -116,9 +123,7 @@ fn small_delay() {
 // pub unsafe extern "avr-interrupt" fn _ivr_timer1_compare_a() {
 pub unsafe extern "C" fn __vector_11() {
 
-    for &b in b" --- interrupt\n" {
-        serial::transmit(b);
-    }
+    serial_println(" --- interrupt");
 
     // Cycle STATIC_TEST through A-Z
     STATIC_TEST = ((STATIC_TEST - b'A') + 1) % 26 + b'A';
