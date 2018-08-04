@@ -10,7 +10,34 @@ use prelude::*;
 use core::ptr::write_volatile;
 use core::ptr::read_volatile;
 
-static mut STATIC_TEST: u8 = 'A' as u8;
+static mut STATIC_TEST: u8 = b'A';
+
+pub fn serial_send_u16_decimal(x: u16) {
+    // Allocate a buffer of fitting size, fill it (least significant
+    // digits first as we have to modulo-divide), and send it
+    // in reverse.
+
+    const BUFSIZE: usize = 5; // u16 never needs more than 5 decimal digits
+    let mut buf = [b'\0'; BUFSIZE];
+
+    // Compute size
+    let mut n = x;
+    let mut chars_needed = 0;
+    loop {
+        let decimal_digit = n % 10;
+        buf[chars_needed] = decimal_digit as u8 + 48;
+        n /= 10;
+        chars_needed += 1;
+        if n == 0 {
+            break;
+        }
+    }
+
+    // Send send buffer
+    for i in 1..(chars_needed+1) {
+        serial::transmit(buf[chars_needed-i]);
+    }
+}
 
 #[no_mangle]
 pub extern fn main() {
@@ -60,23 +87,13 @@ pub extern fn main() {
         small_delay();
 
         unsafe {
-            serial::transmit(STATIC_TEST as u8);
-            serial::transmit(' ' as u8);
+            serial::transmit(STATIC_TEST);
+            serial::transmit(b' ');
 
             for &b in b"Counter value: " { serial::transmit(b); }
 
-            let mut n = read_volatile(TCNT1);
-            let mut buf = [b'\0'; 20];
-            let mut count = 0;
-            while n > 0 {
-                let r = n % 10;
-                buf[count] = r as u8 + 48;
-                n /= 10;
-                count += 1;
-            }
-            for i in 1..(count+1) {
-                serial::transmit(buf[count-i]);
-            }
+            let counter_value = read_volatile(TCNT1);
+            serial_send_u16_decimal(counter_value);
 
         }
         for &b in b" OK\n" {
@@ -104,7 +121,7 @@ pub unsafe extern "C" fn __vector_11() {
     }
 
     // Cycle STATIC_TEST through A-Z
-    STATIC_TEST = ((STATIC_TEST - ('A' as u8)) + 1) % 26 + 'A' as u8;
+    STATIC_TEST = ((STATIC_TEST - b'A') + 1) % 26 + b'A';
 
     // Reset counter to zero
     write_volatile(TCNT1, 0);
