@@ -109,16 +109,18 @@ pub extern fn main() {
     without_interrupts(|| {
 
         timer1::Timer::new()
-            .waveform_generation_mode(timer1::WaveformGenerationMode::ClearOnTimerMatchOutputCompare)
+            .waveform_generation_mode(timer1::WaveformGenerationMode::Normal)
             // .clock_source(timer1::ClockSource::Prescale1024)
             // .clock_source(timer1::ClockSource::Prescale256)
             .clock_source(timer1::ClockSource::Prescale64)
             // .clock_source(timer1::ClockSource::Prescale8)
             // .clock_source(timer1::ClockSource::Prescale1)
             // .output_compare_1(Some(INTERRUPT_EVERY_1_HZ_1024_PRESCALER))
-            .output_compare_1(Some(INTERRUPT_EVERY_1M_HZ_1_PRESCALER))
+            // .output_compare_1(Some(INTERRUPT_EVERY_1M_HZ_1_PRESCALER))
             .configure();
 
+        // Enable Timer 1 overflow interrupt
+        unsafe { write_volatile(TIMSK1, TOIE1); }
     });
 
     loop {
@@ -142,13 +144,8 @@ pub extern fn main() {
             let counter_value = read_volatile(TCNT1);
             serial_send_u16_decimal(counter_value);
 
-            serial_print(" Comparison value: ");
-            serial_send_u16_decimal(INTERRUPT_EVERY_1M_HZ_1_PRESCALER);
-
             serial_print(" Micros value: ");
-            serial_send_u16_decimal(MICROS_COUNTER as u16); // todo make function for printing u64
-            serial_print(" Micros value: ");
-            serial_send_u32_decimal(MICROS_COUNTER as u32); // todo make function for printing u64
+            serial_send_u32_decimal(micros());
 
         }
         serial_println(" OK");
@@ -156,11 +153,14 @@ pub extern fn main() {
     }
 }
 
-static mut MICROS_COUNTER: u32 = 0;
+static mut NUM_OVERFLOWS_4194304_CYCLE_COUNTER: u32 = 0;
 
 pub fn micros() -> u32 {
     unsafe {
-        return MICROS_COUNTER;
+        let overflows = NUM_OVERFLOWS_4194304_CYCLE_COUNTER;
+        let counter_value = read_volatile(TCNT1);
+        let cycles = overflows * 4194304 + counter_value as u32;
+        return cycles / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
     }
 }
 
@@ -272,21 +272,11 @@ macro_rules! isr {
 }
 
 
-isr!(TimerCounter1CompareMatchA, {
+isr!(TimerCounter1Overflow, {
 
     // serial_println(" --- interrupt");
 
-    // Cycle STATIC_TEST through A-Z
-    // STATIC_TEST = ((STATIC_TEST - b'A') + 1) % 26 + b'A';
-
-    // This is quite inaccurate; being 6 instead of 4, it compensates a bit
-    // for how many cycles this interrupt handler takes, but the calculation
-    // is too primitive (assuming 1 cycle per instruction), as when writing
-    // this I didn't have an AVR manual.
-    MICROS_COUNTER += 6;
-
-    // Reset counter to zero
-    write_volatile(TCNT1, 0);
+    NUM_OVERFLOWS_4194304_CYCLE_COUNTER += 1;
 });
 
 // These do not need to be in a module, but we group them here for clarity.
