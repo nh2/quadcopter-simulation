@@ -225,22 +225,16 @@ pub fn micros() -> u32 {
         // Rust doesn't generate the below efficiently.
         // It generates long repetitions of `lsr`, `ror`, `add` and `adc`
         // (up to 14 of each in row).
-        // `avr-gcc` seems to generate more efficient code (though not super)
+        // `avr-gcc` seems to generate more efficient code (though not sure)
         // sure as it generates loops for those.
-
-        // let cycles = overflows * 16384 + (counter_value as u32) * TIMER_0_PRESCALER_NUM;
-        // ~150 cycles
+        // I wonder if `mul` instructions wouldn't be better for this.
 
         // Ideally we'd like to write:
-
-        // let cycles = (overflows * 256 + (counter_value as u32)) * TIMER_0_PRESCALER_NUM;
-        // return cycles / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
-        // ~111 cycles
-
-        // But the multiplication by `TIMER_0_PRESCALER` makes `cycles`
+        //   let cycles = (overflows * 256 + (counter_value as u32)) * TIMER_0_PRESCALER_NUM;
+        //   return cycles / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
+        // But the multiplication by `TIMER_0_PRESCALER_NUM` makes `cycles`
         // overflow quickly; we should rather do the `/ ((CPU_FREQUENCY_HZ / 1_000_000)`
         // division before:
-
         return
             (overflows * 256 + (counter_value as u32))
             * (TIMER_0_PRESCALER_NUM / CYCLES_PER_US);
