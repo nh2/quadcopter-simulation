@@ -6,11 +6,18 @@ EXTRA_AVRDUDE_ARGS="-b 57600"
 
 .PHONY: upload
 upload: target/avr-atmega328p/release/blink.hex
-	avrdude -p atmega328p -c arduino -P $(PORT) -U flash:w:target/avr-atmega328p/release/blink.hex:i $(EXTRA_AVRDUDE_ARGS)
+	killall cu || true
+	avrdude -V -p atmega328p -c arduino -P $(PORT) -U flash:w:target/avr-atmega328p/release/blink.hex:i $(EXTRA_AVRDUDE_ARGS)
 	# /home/niklas/opt/arduino/arduino-1.8.5/hardware/tools/avr/bin/avrdude "/home/niklas/opt/arduino/arduino-1.8.5/hardware/tools/avr/bin/avrdude" "-C/home/niklas/opt/arduino/arduino-1.8.5/hardware/tools/avr/etc/avrdude.conf" "-q" "-q" "-patmega328p" "-carduino" "-P/dev/ttyUSB0" "-b57600" "-D" "-Uflash:w:/tmp/arduino_build_589937/accel3-double-aref-serial.ino.hex:i"
 
 target/avr-atmega328p/release/blink.hex: target/avr-atmega328p/release/blink.elf
 	avr-objcopy -O ihex -R .eeprom target/avr-atmega328p/release/blink.elf target/avr-atmega328p/release/blink.hex
 
 target/avr-atmega328p/release/blink.elf: src/main.rs
-	XARGO_RUST_SRC=/home/niklas/src/avr-rust/rust/ RUST_TARGET_PATH=$(shell pwd) /home/niklas/.cargo/bin/rustup run avr-toolchain xargo build --target avr-atmega328p --release
+	RUSTFLAGS='-C overflow-checks=no' XARGO_RUST_SRC=/home/niklas/src/avr-rust/rust/ RUST_TARGET_PATH=$(shell pwd) /home/niklas/.cargo/bin/rustup run avr-toolchain xargo build --target avr-atmega328p --release
+
+target/avr-atmega328p/debug/blink.elf: src/main.rs
+	CARGO_INCREMENTAL=0 XARGO_RUST_SRC=/home/niklas/src/avr-rust/rust/ RUST_TARGET_PATH=$(shell pwd) /home/niklas/.cargo/bin/rustup run avr-toolchain xargo build --target avr-atmega328p
+
+.PHONY: debug
+debug: target/avr-atmega328p/debug/blink.elf
