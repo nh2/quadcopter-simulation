@@ -20,6 +20,7 @@ pub fn serial_print(s: &str) {
 
 pub fn serial_println(s: &str) {
     serial_print(s);
+    serial::transmit(b'\r');
     serial::transmit(b'\n');
 }
 
