@@ -145,9 +145,6 @@ pub extern fn main() {
             serial_print(" Comparison value: ");
             serial_send_u16_decimal(INTERRUPT_EVERY_1M_HZ_1_PRESCALER);
 
-            serial_print(" UBRR: ");
-            serial_send_u16_decimal(UBRR);
-
             serial_print(" Micros value: ");
             serial_send_u16_decimal(MICROS_COUNTER as u16); // todo make function for printing u64
             serial_print(" Micros value: ");
@@ -176,13 +173,106 @@ fn small_delay() {
 
 }
 
-// Interrupt vector 11 is the "Timer/Counter1 Compare Match A" interrupt
-// handler (see Arduino's `iom328p.h` file.)
-#[no_mangle]
-// See https://github.com/avr-rust/ruduino/issues/94
-// pub unsafe extern "avr-interrupt" fn _ivr_timer1_compare_a() {
-// pub unsafe extern "C" fn __vector_11() {
-pub unsafe extern "avr-interrupt" fn __vector_11() {
+
+pub enum InterruptVector {
+    ExternalInterruptRequest0,
+    ExternalInterruptRequest1,
+    PinChangeInterruptRequest0,
+    PinChangeInterruptRequest1,
+    PinChangeInterruptRequest2,
+    WatchdogTimeOutInterrupt,
+    TimerCounter2CompareMatchA,
+    TimerCounter2CompareMatchB,
+    TimerCounter2Overflow,
+    TimerCounter1CaptureEvent,
+    TimerCounter1CompareMatchA,
+    TimerCounter1CompareMatchB,
+    TimerCounter1Overflow,
+    TimerCounter0CompareMatchA,
+    TimerCounter0CompareMatchB,
+    TimerCounter0Overflow,
+    SPISerialTransferComplete,
+    USARTRxComplete,
+    USARTDataRegisterEmpty,
+    USARTTxComplete,
+    ADCConversionComplete,
+    EEPROMReady,
+    AnalogComparator,
+    TwoWireSerialInterface,
+    StoreProgramMemoryRead,
+}
+
+pub fn vector_number_of(i: InterruptVector) -> u8 {
+    match i {
+        InterruptVector::ExternalInterruptRequest0 => 1,
+        InterruptVector::ExternalInterruptRequest1 => 2,
+        InterruptVector::PinChangeInterruptRequest0 => 3,
+        InterruptVector::PinChangeInterruptRequest1 => 4,
+        InterruptVector::PinChangeInterruptRequest2 => 5,
+        InterruptVector::WatchdogTimeOutInterrupt => 6,
+        InterruptVector::TimerCounter2CompareMatchA => 7,
+        InterruptVector::TimerCounter2CompareMatchB => 8,
+        InterruptVector::TimerCounter2Overflow => 9,
+        InterruptVector::TimerCounter1CaptureEvent => 10,
+        InterruptVector::TimerCounter1CompareMatchA => 11,
+        InterruptVector::TimerCounter1CompareMatchB => 12,
+        InterruptVector::TimerCounter1Overflow => 13,
+        InterruptVector::TimerCounter0CompareMatchA => 14,
+        InterruptVector::TimerCounter0CompareMatchB => 15,
+        InterruptVector::TimerCounter0Overflow => 16,
+        InterruptVector::SPISerialTransferComplete => 17,
+        InterruptVector::USARTRxComplete => 18,
+        InterruptVector::USARTDataRegisterEmpty => 19,
+        InterruptVector::USARTTxComplete => 20,
+        InterruptVector::ADCConversionComplete => 21,
+        InterruptVector::EEPROMReady => 22,
+        InterruptVector::AnalogComparator => 23,
+        InterruptVector::TwoWireSerialInterface => 24,
+        InterruptVector::StoreProgramMemoryRead => 25,
+    }
+}
+
+
+// Macro to define an ISR (Interrupt Service Routine, Interrupt Handler).
+//
+// Example:
+//
+//     isr!(TimerCounter1CompareMatchA, {
+//       // Reset counter to zero
+//       write_volatile(TCNT1, 0);
+//     });
+//
+// Table originally from Arduino's `iom328p.h` file.
+macro_rules! isr {
+    (ExternalInterruptRequest0,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_1()  { $e } };
+    (ExternalInterruptRequest1,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_2()  { $e } };
+    (PinChangeInterruptRequest0, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_3()  { $e } };
+    (PinChangeInterruptRequest1, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_4()  { $e } };
+    (PinChangeInterruptRequest2, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_5()  { $e } };
+    (WatchdogTimeOutInterrupt,   $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_6()  { $e } };
+    (TimerCounter2CompareMatchA, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_7()  { $e } };
+    (TimerCounter2CompareMatchB, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_8()  { $e } };
+    (TimerCounter2Overflow,      $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_9()  { $e } };
+    (TimerCounter1CaptureEvent,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_10() { $e } };
+    (TimerCounter1CompareMatchA, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_11() { $e } };
+    (TimerCounter1CompareMatchB, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_12() { $e } };
+    (TimerCounter1Overflow,      $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_13() { $e } };
+    (TimerCounter0CompareMatchA, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_14() { $e } };
+    (TimerCounter0CompareMatchB, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_15() { $e } };
+    (TimerCounter0Overflow,      $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_16() { $e } };
+    (SPISerialTransferComplete,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_17() { $e } };
+    (USARTRxComplete,            $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_18() { $e } };
+    (USARTDataRegisterEmpty,     $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_19() { $e } };
+    (USARTTxComplete,            $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_20() { $e } };
+    (ADCConversionComplete,      $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_21() { $e } };
+    (EEPROMReady,                $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_22() { $e } };
+    (AnalogComparator,           $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_23() { $e } };
+    (TwoWireSerialInterface,     $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_24() { $e } };
+    (StoreProgramMemoryRead,     $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_25() { $e } };
+}
+
+
+isr!(TimerCounter1CompareMatchA, {
 
     // serial_println(" --- interrupt");
 
@@ -197,7 +287,7 @@ pub unsafe extern "avr-interrupt" fn __vector_11() {
 
     // Reset counter to zero
     write_volatile(TCNT1, 0);
-}
+});
 
 // These do not need to be in a module, but we group them here for clarity.
 pub mod std {
