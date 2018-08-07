@@ -77,14 +77,6 @@ pub fn serial_send_u32_decimal(x: u32) {
 }
 
 const CPU_FREQUENCY_HZ: u64 = 16_000_000;
-const DESIRED_HZ_TIM1: f64 = 250000.0;
-const TIM1_PRESCALER: u64 = 64; // 16 MHz / 64 = 250000 Hz = 4 us
-// const TIM1_PRESCALER: u64 = 1;
-// const INTERRUPT_EVERY_1_HZ_1024_PRESCALER: u16 =
-//     ((CPU_FREQUENCY_HZ as f64 / (DESIRED_HZ_TIM1 * TIM1_PRESCALER as f64)) as u64 - 1) as u16;
-const INTERRUPT_EVERY_1M_HZ_1_PRESCALER: u16 =
-    ((CPU_FREQUENCY_HZ as f64 / (DESIRED_HZ_TIM1 * TIM1_PRESCALER as f64)) as u64) as u16;
-
 
 #[no_mangle]
 pub extern fn main() {
@@ -108,19 +100,13 @@ pub extern fn main() {
 
     without_interrupts(|| {
 
-        timer1::Timer::new()
-            .waveform_generation_mode(timer1::WaveformGenerationMode::Normal)
-            // .clock_source(timer1::ClockSource::Prescale1024)
-            // .clock_source(timer1::ClockSource::Prescale256)
-            .clock_source(timer1::ClockSource::Prescale64)
-            // .clock_source(timer1::ClockSource::Prescale8)
-            // .clock_source(timer1::ClockSource::Prescale1)
-            // .output_compare_1(Some(INTERRUPT_EVERY_1_HZ_1024_PRESCALER))
-            // .output_compare_1(Some(INTERRUPT_EVERY_1M_HZ_1_PRESCALER))
+        timer0::Timer::new()
+            .waveform_generation_mode(timer0::WaveformGenerationMode::Normal)
+            .clock_source(timer0::ClockSource::Prescale64)
             .configure();
 
-        // Enable Timer 1 overflow interrupt
-        unsafe { write_volatile(TIMSK1, TOIE1); }
+        // Enable Timer 0 overflow interrupt
+        unsafe { write_volatile(TIMSK0, TOIE0); }
     });
 
     loop {
@@ -141,8 +127,8 @@ pub extern fn main() {
 
             serial_print("Counter value: ");
 
-            let counter_value = read_volatile(TCNT1);
-            serial_send_u16_decimal(counter_value);
+            let counter_value = read_volatile(TCNT0);
+            serial_send_u16_decimal(counter_value as u16);
 
             serial_print(" Micros value: ");
             serial_send_u32_decimal(micros());
@@ -153,13 +139,15 @@ pub extern fn main() {
     }
 }
 
-static mut NUM_OVERFLOWS_4194304_CYCLE_COUNTER: u32 = 0;
+// We use Counter 1 (8-bit) with the 64-prescaler,
+// so it overflows every 256 * 64 = 16384 cycles.
+static mut NUM_OVERFLOWS_16384_CYCLE_COUNTER: u32 = 0;
 
 pub fn micros() -> u32 {
     unsafe {
-        let overflows = NUM_OVERFLOWS_4194304_CYCLE_COUNTER;
-        let counter_value = read_volatile(TCNT1);
-        let cycles = overflows * 4194304 + counter_value as u32;
+        let overflows = NUM_OVERFLOWS_16384_CYCLE_COUNTER;
+        let counter_value: u8 = read_volatile(TCNT0);
+        let cycles = overflows * 16384 + counter_value as u32;
         return cycles / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
     }
 }
@@ -272,11 +260,11 @@ macro_rules! isr {
 }
 
 
-isr!(TimerCounter1Overflow, {
+isr!(TimerCounter0Overflow, {
 
     // serial_println(" --- interrupt");
 
-    NUM_OVERFLOWS_4194304_CYCLE_COUNTER += 1;
+    NUM_OVERFLOWS_16384_CYCLE_COUNTER += 1;
 });
 
 // These do not need to be in a module, but we group them here for clarity.
