@@ -195,6 +195,9 @@ static mut NUM_OVERFLOWS_16384_CYCLE_COUNTER: u32 = 0;
 const CYCLES_PER_US: u32 = (CPU_FREQUENCY_HZ / 1_000_000) as u32;
 
 
+// Comment these in for easy disassembly with `objdump`:
+//#[no_mangle] #[inline(never)]
+
 // Returns the number of microseconds since the initialisation of
 // Counter 0.
 // Assumes this setup:
@@ -210,10 +213,6 @@ const CYCLES_PER_US: u32 = (CPU_FREQUENCY_HZ / 1_000_000) as u32;
 // This number will overflow, after approximately 70 minutes.
 // On 16 MHz CPUs, this function has a resolution of 4 microseconds
 // (i.e. the value returned is always a multiple of 4).
-//
-// Don't inline or mangle so that we can count `own_cycles` easily.
-#[no_mangle]
-#[inline(never)]
 pub fn micros() -> u32 {
     unsafe {
         // Disable interrupts while we read `NUM_OVERFLOWS_16384_CYCLE_COUNTER`
@@ -222,13 +221,6 @@ pub fn micros() -> u32 {
         // value that cannot be written atomically).
         let overflows = without_interrupts_restore(|| NUM_OVERFLOWS_16384_CYCLE_COUNTER );
         let counter_value: u8 = read_volatile(TCNT0);
-
-
-        // Number of instructions that `micros()` itself takes.
-        // Obtained by looking at the generated assembly.
-        // TODO Write `micros()` in assembly instead so we know
-        //      that this number is correct.
-        let own_cycles = 113;
 
         // Rust doesn't generate the below efficiently.
         // It generates long repetitions of `lsr`, `ror`, `add` and `adc`
@@ -242,17 +234,16 @@ pub fn micros() -> u32 {
         // Ideally we'd like to write:
 
         // let cycles = (overflows * 256 + (counter_value as u32)) * TIMER_0_PRESCALER_NUM;
-        // return (cycles - own_cycles) / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
+        // return cycles / ((CPU_FREQUENCY_HZ / 1_000_000) as u32);
         // ~111 cycles
 
         // But the multiplication by `TIMER_0_PRESCALER` makes `cycles`
         // overflow quickly; we should rather do the `/ ((CPU_FREQUENCY_HZ / 1_000_000)`
         // division before:
 
-        let cycles_micros =
+        return
             (overflows * 256 + (counter_value as u32))
             * (TIMER_0_PRESCALER_NUM / CYCLES_PER_US);
-        return cycles_micros - (own_cycles / CYCLES_PER_US);
     }
 }
 
