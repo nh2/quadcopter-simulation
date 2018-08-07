@@ -9,6 +9,37 @@ use arduino::*;
 use prelude::*;
 use core::ptr::*;
 
+pub struct DisableAndRestoreInterrupts {
+    sreg_to_restore: u8,
+}
+
+impl DisableAndRestoreInterrupts {
+    #[inline]
+    pub fn new() -> DisableAndRestoreInterrupts {
+        let sreg = unsafe {
+            let sreg = read_volatile(SREG);
+            asm!("CLI");
+            sreg
+        };
+        DisableAndRestoreInterrupts { sreg_to_restore: sreg }
+    }
+}
+
+impl Drop for DisableAndRestoreInterrupts {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe { write_volatile(SREG, self.sreg_to_restore) }
+    }
+}
+
+pub fn without_interrupts_restore<F, T>(f: F) -> T
+    where F: FnOnce() -> T
+{
+    let _disabled = DisableAndRestoreInterrupts::new();
+    f()
+}
+
+
 static mut STATIC_TEST: u8 = b'A';
 
 pub fn serial_print(s: &str) {
@@ -185,14 +216,19 @@ const CYCLES_PER_US: u32 = (CPU_FREQUENCY_HZ / 1_000_000) as u32;
 #[inline(never)]
 pub fn micros() -> u32 {
     unsafe {
-        let overflows = NUM_OVERFLOWS_16384_CYCLE_COUNTER;
+        // Disable interrupts while we read `NUM_OVERFLOWS_16384_CYCLE_COUNTER`
+        // or we might get an inconsistent value (e.g. in the middle of a
+        // write to `NUM_OVERFLOWS_16384_CYCLE_COUNTER` which is a multi-byte
+        // value that cannot be written atomically).
+        let overflows = without_interrupts_restore(|| NUM_OVERFLOWS_16384_CYCLE_COUNTER );
         let counter_value: u8 = read_volatile(TCNT0);
+
 
         // Number of instructions that `micros()` itself takes.
         // Obtained by looking at the generated assembly.
         // TODO Write `micros()` in assembly instead so we know
         //      that this number is correct.
-        let own_cycles = 110;
+        let own_cycles = 113;
 
         // Rust doesn't generate the below efficiently.
         // It generates long repetitions of `lsr`, `ror`, `add` and `adc`
