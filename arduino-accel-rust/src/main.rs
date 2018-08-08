@@ -253,6 +253,7 @@ fn small_delay() {
 
 #[repr(u8)]
 pub enum InterruptVector {
+    Default = 0,
     ExternalInterruptRequest0 = 1,
     ExternalInterruptRequest1 = 2,
     PinChangeInterruptRequest0 = 3,
@@ -297,6 +298,7 @@ pub fn vector_number_of(i: InterruptVector) -> u8 {
 //
 // Table originally from Arduino's `iom328p.h` file.
 macro_rules! isr {
+    (Default,                    $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_default() { $e } };
     (ExternalInterruptRequest0,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_1()  { $e } };
     (ExternalInterruptRequest1,  $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_2()  { $e } };
     (PinChangeInterruptRequest0, $e:expr) => { #[no_mangle] pub unsafe extern "avr-interrupt" fn __vector_3()  { $e } };
